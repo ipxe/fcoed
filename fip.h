@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include "fcoe.h"
+#include "fcels.h"
 
 union fip_descriptor;
 
@@ -48,33 +49,33 @@ struct fip_header {
 /** FIP protocol code */
 enum fip_code {
 	FIP_CODE_DISCOVERY = 0x0001,	/**< Discovery */
-	FIP_CODE_VIRTUAL_LINK = 0x0002,	/**< Virtual link instantiation */
-	FIP_CODE_VITALITY = 0x0003,	/**< Keep alive / clear links */
+	FIP_CODE_ELS = 0x0002,		/**< Extended link services */
+	FIP_CODE_MAINTAIN = 0x0003,	/**< Maintain virtual links */
 	FIP_CODE_VLAN = 0x0004,		/**< VLAN */
 };
 
 /** FIP protocol subcode for discovery */
 enum fip_discovery_subcode {
-	FIP_DISCOVERY_SOLICITATION = 0x01,	/**< Discovery solicitation */
-	FIP_DISCOVERY_ADVERTISEMENT = 0x02,	/**< Discovery advertisement */
+	FIP_DISCOVERY_SOLICIT = 0x01,	/**< Discovery solicitation */
+	FIP_DISCOVERY_ADVERTISE = 0x02,	/**< Discovery advertisement */
 };
 
-/** FIP protocol subcode for virtual link instantiation */
-enum fip_virtual_link_subcode {
-	FIP_VIRTUAL_LINK_REQUEST = 0x01,	/**< Instantiation request */
-	FIP_VIRTUAL_LINK_REPLY = 0x02,		/**< Instantiation reply */
+/** FIP protocol subcode for extended link services */
+enum fip_els_subcode {
+	FIP_ELS_REQUEST = 0x01,		/**< ELS request */
+	FIP_ELS_RESPONSE = 0x02,	/**< ELS response */
 };
 
 /** FIP protocol subcode for keep alive / clear links */
 enum fip_vitality_subcode {
-	FIP_VITALITY_KEEP_ALIVE = 0x01,		/**< Keep alive */
-	FIP_VITALITY_CLEAR_LINKS = 0x02,	/**< Clear virtual links */
+	FIP_MAINTAIN_KEEP_ALIVE = 0x01,	/**< Keep alive */
+	FIP_MAINTAIN_CLEAR_LINKS = 0x02,/**< Clear virtual links */
 };
 
 /** FIP protocol subcode for VLAN */
 enum fip_vlan_subcode {
-	FIP_VLAN_REQUEST = 0x01,		/**< VLAN request */
-	FIP_VLAN_NOTIFICATION = 0x02,		/**< VLAN notification */
+	FIP_VLAN_REQUEST = 0x01,	/**< VLAN request */
+	FIP_VLAN_NOTIFY = 0x02,		/**< VLAN notification */
 };
 
 /** FIP flags */
@@ -87,7 +88,7 @@ enum fip_flags {
 };
 
 /** FIP descriptor common fields */
-struct fip_descriptor_common {
+struct fip_common {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -98,6 +99,7 @@ struct fip_descriptor_common {
 
 /** FIP descriptor types */
 enum fip_type {
+	FIP_RESERVED = 0x00,		/**< Reserved */
 	FIP_PRIORITY = 0x01,		/**< Priority */
 	FIP_MAC_ADDRESS = 0x02,		/**< MAC address */
 	FIP_FC_MAP = 0x03,		/**< FC-MAP */
@@ -112,13 +114,14 @@ enum fip_type {
 	FIP_FKA_ADV_P = 0x0c,		/**< FKA ADV period */
 	FIP_VENDOR_ID = 0x0d,		/**< Vendor ID */
 	FIP_VLAN = 0x0e,		/**< VLAN */
+	FIP_NUM_DESCRIPTOR_TYPES
 };
 
 /** FIP descriptor type is critical */
 #define FIP_IS_CRITICAL( type ) ( (type) <= 0x7f )
 
 /** A FIP priority descriptor */
-struct fip_descriptor_priority {
+struct fip_priority {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -136,7 +139,7 @@ struct fip_descriptor_priority {
 #define FIP_DEFAULT_PRIORITY 128
 
 /** A FIP MAC address descriptor */
-struct fip_descriptor_mac_address {
+struct fip_mac_address {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -146,7 +149,7 @@ struct fip_descriptor_mac_address {
 } __attribute__ (( packed ));
 
 /** A FIP FC-MAP descriptor */
-struct fip_descriptor_fc_map {
+struct fip_fc_map {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -158,7 +161,7 @@ struct fip_descriptor_fc_map {
 } __attribute__ (( packed ));
 
 /** A FIP name identifier descriptor */
-struct fip_descriptor_name_id {
+struct fip_name_id {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -170,7 +173,7 @@ struct fip_descriptor_name_id {
 } __attribute__ (( packed ));
 
 /** A FIP fabric descriptor */
-struct fip_descriptor_fabric {
+struct fip_fabric {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -186,7 +189,7 @@ struct fip_descriptor_fabric {
 } __attribute__ (( packed ));
 
 /** A FIP max FCoE size descriptor */
-struct fip_descriptor_max_fcoe_size {
+struct fip_max_fcoe_size {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -195,20 +198,80 @@ struct fip_descriptor_max_fcoe_size {
 	uint16_t mtu;
 } __attribute__ (( packed ));
 
-/** A FIP descriptor containing an encapsulated Fibre Channel frame */
-struct fip_descriptor_fc_frame {
+/** A FIP descriptor containing an encapsulated login frame */
+struct fip_login {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
 	uint8_t len;
 	/** Reserved */
 	uint8_t reserved[2];
-	/** Payload */
-	uint8_t payload[0];
+	/** Fibre Channel frame header */
+	struct fc_frame_header fc;
+	/** ELS frame */
+	struct fc_login_frame els;
+} __attribute__ (( packed ));
+
+/** A FIP descriptor containing an encapsulated LOGO request frame */
+struct fip_logo_request {
+	/** Type */
+	uint8_t type;
+	/** Length in 32-bit words */
+	uint8_t len;
+	/** Reserved */
+	uint8_t reserved[2];
+	/** Fibre Channel frame header */
+	struct fc_frame_header fc;
+	/** ELS frame */
+	struct fc_logout_request_frame els;
+} __attribute__ (( packed ));
+
+/** A FIP descriptor containing an encapsulated LOGO response frame */
+struct fip_logo_response {
+	/** Type */
+	uint8_t type;
+	/** Length in 32-bit words */
+	uint8_t len;
+	/** Reserved */
+	uint8_t reserved[2];
+	/** Fibre Channel frame header */
+	struct fc_frame_header fc;
+	/** ELS frame */
+	struct fc_logout_response_frame els;
+} __attribute__ (( packed ));
+
+/** A FIP descriptor containing an encapsulated LOGO response frame */
+struct fip_elp {
+	/** Type */
+	uint8_t type;
+	/** Length in 32-bit words */
+	uint8_t len;
+	/** Reserved */
+	uint8_t reserved[2];
+	/** Fibre Channel frame header */
+	struct fc_frame_header fc;
+	/** ELS frame */
+	struct fc_els_frame_common els;
+	/** Uninteresting content */
+	uint32_t dull[25];
+} __attribute__ (( packed ));
+
+/** A FIP descriptor containing an encapsulated LS_RJT frame */
+struct fip_ls_rjt {
+	/** Type */
+	uint8_t type;
+	/** Length in 32-bit words */
+	uint8_t len;
+	/** Reserved */
+	uint8_t reserved[2];
+	/** Fibre Channel frame header */
+	struct fc_frame_header fc;
+	/** ELS frame */
+	struct fc_ls_rjt_frame els;
 } __attribute__ (( packed ));
 
 /** A FIP Vx port identification descriptor */
-struct fip_descriptor_vx_port_id {
+struct fip_vx_port_id {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -224,7 +287,7 @@ struct fip_descriptor_vx_port_id {
 } __attribute__ (( packed ));
 
 /** A FIP FKA ADV period descriptor */
-struct fip_descriptor_fka_adv_p {
+struct fip_fka_adv_p {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -238,12 +301,12 @@ struct fip_descriptor_fka_adv_p {
 } __attribute__ (( packed ));
 
 /** FIP FKA ADV period flags */
-enum fip_descriptor_fka_adv_p_flags {
+enum fip_fka_adv_p_flags {
 	FIP_NO_KEEPALIVE = 0x01,	/**< Do not send keepalives */
 };
 
 /** A FIP vendor ID descriptor */
-struct fip_descriptor_vendor_id {
+struct fip_vendor_id {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -255,7 +318,7 @@ struct fip_descriptor_vendor_id {
 } __attribute__ (( packed ));
 
 /** A FIP VLAN descriptor */
-struct fip_descriptor_vlan {
+struct fip_vlan {
 	/** Type */
 	uint8_t type;
 	/** Length in 32-bit words */
@@ -267,40 +330,99 @@ struct fip_descriptor_vlan {
 /** A FIP descriptor */
 union fip_descriptor {
 	/** Common fields */
-	struct fip_descriptor_common common;
+	struct fip_common common;
 	/** Priority descriptor */
-	struct fip_descriptor_priority priority;
+	struct fip_priority priority;
 	/** MAC address descriptor */
-	struct fip_descriptor_mac_address mac_address;
+	struct fip_mac_address mac_address;
 	/** FC-MAP descriptor */
-	struct fip_descriptor_fc_map fc_map;
+	struct fip_fc_map fc_map;
 	/** Name identifier descriptor */
-	struct fip_descriptor_name_id name_id;
+	struct fip_name_id name_id;
 	/** Fabric descriptor */
-	struct fip_descriptor_fabric fabric;
+	struct fip_fabric fabric;
 	/** Max FCoE size descriptor */
-	struct fip_descriptor_max_fcoe_size max_fcoe_size;
-	/** FLOGI descriptor */
-	struct fip_descriptor_fc_frame flogi;
-	/** NPIV FDISC descriptor */
-	struct fip_descriptor_fc_frame npiv_fdisc;
-	/** LOGO descriptor */
-	struct fip_descriptor_fc_frame logo;
-	/** ELP descriptor */
-	struct fip_descriptor_fc_frame elp;
+	struct fip_max_fcoe_size max_fcoe_size;
+	/** FLOGI request descriptor */
+	struct fip_login flogi_request;
+	/** FLOGI LS_ACC descriptor */
+	struct fip_login flogi_ls_acc;
+	/** FLOGI LS_RJT descriptor */
+	struct fip_ls_rjt flogi_ls_rjt;
+	/** NPIV FDISC request descriptor */
+	struct fip_login npiv_fdisc_request;
+	/** NPIV FDISC LS_ACC descriptor */
+	struct fip_login npiv_fdisc_ls_acc;
+	/** NPIV FDISC LS_RJT descriptor */
+	struct fip_ls_rjt npiv_fdisc_ls_rjt;
+	/** LOGO request descriptor */
+	struct fip_logo_request logo_request;
+	/** LOGO LS_ACC descriptor */
+	struct fip_logo_response logo_ls_acc;
+	/** LOGO LS_RJT descriptor */
+	struct fip_ls_rjt logo_ls_rjt;
+	/** ELP request descriptor */
+	struct fip_elp elp_request;
+	/** ELP LS_ACC descriptor */
+	struct fip_elp elp_ls_acc;
+	/** ELP LS_RJT descriptor */
+	struct fip_ls_rjt elp_ls_rjt;
 	/** Vx port identification descriptor */
-	struct fip_descriptor_vx_port_id vx_port_id;
+	struct fip_vx_port_id vx_port_id;
 	/** FKA ADV period descriptor */
-	struct fip_descriptor_fka_adv_p fka_adv_p;
+	struct fip_fka_adv_p fka_adv_p;
 	/** Vendor ID descriptor */
-	struct fip_descriptor_vendor_id vendor_id;
+	struct fip_vendor_id vendor_id;
 	/** VLAN descriptor */
-	struct fip_descriptor_vlan vlan;
+	struct fip_vlan vlan;
 } __attribute__ (( packed ));
 
+/** A FIP descriptor set */
+struct fip_descriptors {
+	/** Descriptors, indexed by type */
+	union fip_descriptor *desc[FIP_NUM_DESCRIPTOR_TYPES];
+};
+
+/**
+ * Define a function to extract a specific FIP descriptor type from a list
+ *
+ * @v type		Descriptor type
+ * @v name		Descriptor name
+ * @v finder		Descriptor finder
+ */
+#define FIP_DESCRIPTOR( type, name )					\
+	static inline __attribute__ (( always_inline ))			\
+	typeof ( ( ( union fip_descriptor * ) NULL )->name ) *		\
+	fip_ ## name ( struct fip_descriptors *descs ) {		\
+		return &(descs->desc[type]->name);			\
+	}
+FIP_DESCRIPTOR ( FIP_PRIORITY, priority );
+FIP_DESCRIPTOR ( FIP_MAC_ADDRESS, mac_address );
+FIP_DESCRIPTOR ( FIP_FC_MAP, fc_map );
+FIP_DESCRIPTOR ( FIP_NAME_ID, name_id );
+FIP_DESCRIPTOR ( FIP_FABRIC, fabric );
+FIP_DESCRIPTOR ( FIP_MAX_FCOE_SIZE, max_fcoe_size );
+FIP_DESCRIPTOR ( FIP_FLOGI, flogi_request );
+FIP_DESCRIPTOR ( FIP_FLOGI, flogi_ls_acc );
+FIP_DESCRIPTOR ( FIP_FLOGI, flogi_ls_rjt );
+FIP_DESCRIPTOR ( FIP_NPIV_FDISC, npiv_fdisc_request );
+FIP_DESCRIPTOR ( FIP_NPIV_FDISC, npiv_fdisc_ls_acc );
+FIP_DESCRIPTOR ( FIP_NPIV_FDISC, npiv_fdisc_ls_rjt );
+FIP_DESCRIPTOR ( FIP_LOGO, logo_request );
+FIP_DESCRIPTOR ( FIP_LOGO, logo_ls_acc );
+FIP_DESCRIPTOR ( FIP_LOGO, logo_ls_rjt );
+FIP_DESCRIPTOR ( FIP_ELP, elp_request );
+FIP_DESCRIPTOR ( FIP_ELP, elp_ls_acc );
+FIP_DESCRIPTOR ( FIP_ELP, elp_ls_rjt );
+FIP_DESCRIPTOR ( FIP_VX_PORT_ID, vx_port_id );
+FIP_DESCRIPTOR ( FIP_FKA_ADV_P, fka_adv_p );
+FIP_DESCRIPTOR ( FIP_VENDOR_ID, vendor_id );
+FIP_DESCRIPTOR ( FIP_VLAN, vlan );
+
 struct fcoed_interface;
-extern int fip_send_discovery_advertisement ( struct fcoed_interface *intf,
-					      uint8_t dst[ETH_ALEN] );
-extern int receive_fip ( struct fcoed_interface *intf, void *data, size_t len );
+extern int fip_tx_discovery_advertisement ( struct fcoed_interface *intf,
+					    uint8_t *dst );
+extern int fip_rx ( struct fcoed_interface *intf, uint8_t *src,
+		    void *data, size_t len );
 
 #endif /* _FIP_H */

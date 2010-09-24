@@ -21,6 +21,7 @@
 #include <stdarg.h>
 #include <unistd.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #include <byteswap.h>
 #include <sys/types.h>
@@ -46,8 +47,17 @@ static int daemonised = 0;
 /** FCoE MAC address prefix */
 struct fc_map fc_map = { { 0x0e, 0xfc, 0x00 } };
 
-/** FCoE MAC address */
+/** FCF port ID */
+struct fc_port_id fc_f_port_id = { { 0xff, 0xff, 0xfe } };
+
+/** FCF MAC address */
 uint8_t fc_f_mac[ETH_ALEN];
+
+/** FCF node name */
+union fcoe_name fc_f_node_wwn;
+
+/** FCF port name */
+union fcoe_name fc_f_port_wwn;
 
 /** FCoE All-FCoE-MACs address */
 static uint8_t all_fcoe_macs[ETH_ALEN] =
@@ -61,8 +71,17 @@ static uint8_t all_enode_macs[ETH_ALEN] =
 static uint8_t all_fcf_macs[ETH_ALEN] =
 	{ 0x01, 0x10, 0x18, 0x01, 0x00, 0x02 };
 
+/** Server-provided MAC addresses are allowed */
+int allow_spma = 0;
+
 /** List of interfaces */
-LIST_HEAD ( interfaces );
+static LIST_HEAD ( interfaces );
+
+/** Base port ID */
+static struct fc_port_id base_port_id = { { 0x18, 0xae, 0x00 } };
+
+/** Port ID allocation bitmap */
+static unsigned int free_port_ids = -1U;
 
 /**
  * Log error message
@@ -87,21 +106,18 @@ void logmsg ( int level, const char *format, ... ) {
  * Generate MAC address
  *
  */
-static void set_fc_f_mac ( void ) {
-	struct timeval tv;
+void random_ether_addr ( uint8_t *mac ) {
 	unsigned int i;
 
 	/* Generate random initial MAC */
-	gettimeofday ( &tv, NULL );
-	srand ( tv.tv_usec );
-	for ( i = 0 ; i < sizeof ( fc_f_mac ) ; i++ )
-		fc_f_mac[i] = random();
+	for ( i = 0 ; i < ETH_ALEN ; i++ )
+		mac[i] = random();
 
 	/* Clear multicast bit */
-	fc_f_mac[0] &= ~0x01;
+	mac[0] &= ~0x01;
 
 	/* Set locally-assigned bit */
-	fc_f_mac[0] |= 0x02;
+	mac[0] |= 0x02;
 }
 
 /**
@@ -224,26 +240,166 @@ static int add_interface ( const char *name ) {
 }
 
 /**
+ * Allocate a new port ID
+ *
+ * @ret port_id		Port ID (if successful)
+ * @ret rc		Return status code
+ */
+static int alloc_port_id ( struct fc_port_id *port_id ) {
+	unsigned int offset;
+
+	/* Find a free offset */
+	offset = ffs ( free_port_ids );
+	if ( ! offset ) {
+		logmsg ( LOG_ERR, "no more free port IDs\n" );
+		return -1;
+	}
+
+	/* Mark offset as used */
+	free_port_ids &= ~( 1UL << ( offset - 1 ) );
+
+	/* Construct port ID */
+	memcpy ( port_id, &base_port_id, sizeof ( *port_id ) );
+	port_id->bytes[2] += offset;
+
+	return 0;
+}
+
+/**
+ * Free port ID
+ *
+ * @v port_id		Port ID
+ */
+static void free_port_id ( struct fc_port_id *port_id ) {
+	unsigned int offset;
+
+	offset = port_id->bytes[2];
+	free_port_ids |= ( 1UL << ( offset - 1 ) );
+}
+
+/**
  * Add port to FCoE interface
  *
  * @v intf		Interface
- * @v port_id		Port ID
- * @v mac		MAC address
+ * @v real_mac		Real MAC address
+ * @v mac		FCoE MAC address, or NULL
+ * @ret port		Port (if successful)
  * @ret rc		Return status code
  */
-int add_port ( struct fcoed_interface *intf, struct fc_port_id *port_id,
-	       uint8_t mac[ETH_ALEN] ) {
-	struct fcoed_port *port;
+int add_port ( struct fcoed_interface *intf, uint8_t *real_mac,
+	       uint8_t *mac, struct fcoed_port **port ) {
+	struct fcoed_interface *old_intf;
+	struct fcoed_port *old_port;
+	struct fc_port_id port_id;
+	union {
+		struct fcoe_mac fcoe;
+		uint8_t bytes[ETH_ALEN];
+	} fpma_mac;
+
+	/* Delete any existing port with this FCoE or real MAC address */
+	if ( find_port_by_real_mac ( real_mac, &old_intf, &old_port ) == 0 )
+		remove_port ( old_port );
+	if ( mac && ( find_port_by_mac ( mac, &old_intf, &old_port ) == 0 ) )
+		remove_port ( old_port );
+
+	/* Allocate a port ID */
+	if ( alloc_port_id ( &port_id ) < 0 )
+		return -1;
+
+	/* Calculate MAC address */
+	if ( mac ) {
+		if ( ! allow_spma ) {
+			logmsg ( LOG_ERR, "SPMA disabled\n" );
+			return -1;
+		}
+	} else {
+		memcpy ( &fpma_mac.fcoe.fc_map, &fc_map,
+			 sizeof ( fpma_mac.fcoe.fc_map ) );
+		memcpy ( &fpma_mac.fcoe.port_id, &port_id,
+			 sizeof ( fpma_mac.fcoe.port_id ) );
+		mac = fpma_mac.bytes;
+	}
 
 	/* Allocate and initialise structure */
-	port = malloc ( sizeof ( *port ) );
-	if ( ! port )
+	*port = malloc ( sizeof ( **port ) );
+	if ( ! *port )
 		return -1;
-	memset ( port, 0, sizeof ( *port ) );
-	memcpy ( &port->port_id, port_id, sizeof ( port->port_id ) );
-	memcpy ( port->mac, mac, sizeof ( port->mac ) );
-	list_add ( &port->list, &intf->ports );
+	memset ( *port, 0, sizeof ( **port ) );
+	memcpy ( &(*port)->port_id, &port_id, sizeof ( (*port)->port_id ) );
+	memcpy ( (*port)->mac, mac, sizeof ( (*port)->mac ) );
+	memcpy ( (*port)->real_mac, real_mac, sizeof ( (*port)->real_mac ) );
+	list_add ( &(*port)->list, &intf->ports );
+
+	logmsg ( LOG_INFO, "added MAC " MAC_FMT " (really " MAC_FMT ") as "
+		 "port ID " FC_PORT_ID_FMT "\n", MAC_ARGS ( mac ),
+		 MAC_ARGS ( real_mac ), FC_PORT_ID_ARGS ( &port_id ) );
+
 	return 0;
+}
+
+/**
+ * Find port by FCoE MAC address
+ *
+ * @v mac		MAC address
+ * @ret intf		Interface (if successful)
+ * @ret port		Port (if successful)
+ * @ret rc		Return status code
+ */
+int find_port_by_mac ( uint8_t *mac, struct fcoed_interface **intf,
+		       struct fcoed_port **port ) {
+
+	list_for_each_entry ( (*intf), &interfaces, list ) {
+		list_for_each_entry ( (*port), &(*intf)->ports, list ) {
+			if ( memcmp ( (*port)->mac, mac,
+				      sizeof ( (*port)->mac ) ) == 0 )
+				return 0;
+		}
+	}
+	return -1;
+}
+
+/**
+ * Find port by real MAC address
+ *
+ * @v real		MAC address
+ * @ret intf		Interface (if successful)
+ * @ret port		Port (if successful)
+ * @ret rc		Return status code
+ */
+int find_port_by_real_mac ( uint8_t *real_mac,
+			    struct fcoed_interface **intf,
+			    struct fcoed_port **port ) {
+
+	list_for_each_entry ( (*intf), &interfaces, list ) {
+		list_for_each_entry ( (*port), &(*intf)->ports, list ) {
+			if ( memcmp ( (*port)->real_mac, real_mac,
+				      sizeof ( (*port)->real_mac ) ) == 0 )
+				return 0;
+		}
+	}
+	return -1;
+}
+
+/**
+ * Find port by port ID
+ *
+ * @v port_id		Port ID
+ * @ret intf		Interface (if successful)
+ * @ret port		Port (if successful)
+ * @ret rc		Return status code
+ */
+int find_port_by_id ( struct fc_port_id *port_id,
+		      struct fcoed_interface **intf,
+		      struct fcoed_port **port ) {
+
+	list_for_each_entry ( (*intf), &interfaces, list ) {
+		list_for_each_entry ( (*port), &(*intf)->ports, list ) {
+			if ( memcmp ( &(*port)->port_id, port_id,
+				      sizeof ( (*port)->port_id ) ) == 0 )
+				return 0;
+		}
+	}
+	return -1;
 }
 
 /**
@@ -253,6 +409,7 @@ int add_port ( struct fcoed_interface *intf, struct fc_port_id *port_id,
  */
 void remove_port ( struct fcoed_port *port ) {
 
+	free_port_id ( &port->port_id );
 	list_del ( &port->list );
 	free ( port );
 }
@@ -344,8 +501,9 @@ static void usage ( char **argv ) {
 		 "\n"
 		 "Options:\n"
 		 "  -h|--help               Print this help message\n"
-		 "  -n|--nodaemon           Run in foreground\n"
-		 "  -m|--map=XX.XX.XX       Specify FC-MAP\n",
+		 "  -n|--no-daemon          Run in foreground\n"
+		 "  -m|--map=XX.XX.XX       Specify FC-MAP\n"
+		 "  -s|--spma               Allow server-provided MACs\n",
 		 argv[0] );
 }
 
@@ -359,8 +517,9 @@ static void usage ( char **argv ) {
 static int parse_options ( int argc, char **argv ) {
 	static struct option longopts[] = {
 		{ "help", 0, NULL, 'h' },
-		{ "nodaemon", 0, NULL, 'n' },
+		{ "no-daemon", 0, NULL, 'n' },
 		{ "map", required_argument, NULL, 'm' },
+		{ "spma", 0, NULL, 's' },
 		{ NULL, 0, NULL, 0 },
 	};
 	int longidx;
@@ -368,7 +527,7 @@ static int parse_options ( int argc, char **argv ) {
 
 	/* Parse command-line options */
 	while ( 1 ) {
-		c = getopt_long ( argc, argv, "hn", longopts, &longidx );
+		c = getopt_long ( argc, argv, "hnm:s", longopts, &longidx );
 		if ( c < 0 )
 			break;
 
@@ -382,6 +541,9 @@ static int parse_options ( int argc, char **argv ) {
 		case 'm':
 			if ( set_fcmap ( optarg ) < 0 )
 				return -1;
+			break;
+		case 's':
+			allow_spma = 1;
 			break;
 		default:
 			logmsg ( LOG_ERR, "Unrecognised option '-%c'\n", c );
@@ -448,6 +610,8 @@ static int receive ( struct fcoed_interface *intf ) {
 	const unsigned char *pkt_data;
 	struct ethhdr *ethhdr;
 	size_t pkt_len;
+	void *payload;
+	size_t payload_len;
 
 	/* Receive packet from network */
 	if ( pcap_next_ex ( intf->pcap, &pkt_header, &pkt_data ) < 0 ) {
@@ -464,20 +628,26 @@ static int receive ( struct fcoed_interface *intf ) {
 		goto discard;
 	pkt_len = pkt_header->len;
 
-	/* Hand off packet to appropriate protocol */
+	/* Strip Ethernet header */
 	ethhdr = ( ( void * ) pkt_data );
 	if ( pkt_len < sizeof ( *ethhdr ) ) {
 		logmsg ( LOG_ERR, "received truncated Ethernet header (%zd "
 			 "bytes)\n", pkt_len );
 		goto discard;
 	}
+	payload = ( ethhdr + 1 );
+	payload_len = ( pkt_len - sizeof ( *ethhdr ) );
+
+	/* Hand off packet to appropriate protocol */
 	switch ( ntohs ( ethhdr->h_proto ) ) {
 	case ETH_P_FCOE :
-		if ( receive_fcoe ( intf, ethhdr, pkt_len ) < 0 )
+		if ( fcoe_rx ( intf, ethhdr->h_source, payload,
+			       payload_len ) < 0 )
 			goto discard;
 		break;
 	case ETH_P_FIP :
-		if ( receive_fip ( intf, ethhdr, pkt_len ) < 0 )
+		if ( fip_rx ( intf, ethhdr->h_source, payload,
+			      payload_len ) < 0 )
 			goto discard;
 		break;
 	default:
@@ -504,7 +674,7 @@ static void advertise ( void ) {
 	struct fcoed_interface *intf;
 
 	list_for_each_entry ( intf, &interfaces, list )
-		fip_send_discovery_advertisement ( intf, all_enode_macs );
+		fip_tx_discovery_advertisement ( intf, all_enode_macs );
 }
 
 /**
@@ -568,13 +738,24 @@ static int main_loop ( struct fcoed_interface **intfs, int numfds ) {
  * @ret exit		Exit code
  */
 int main ( int argc, char **argv ) {
+	struct timeval tv;
 	struct fcoed_interface *intf;
 	struct fcoed_interface **intfs;
 	int ifidx;
 	int numfds = 0;
 
-	/* Set MAC address */
-	set_fc_f_mac();
+	/* Seed random number generator */
+	gettimeofday ( &tv, NULL );
+	srand ( tv.tv_usec );
+
+	/* Set MAC address, port name, and node name */
+	random_ether_addr ( fc_f_mac );
+	fc_f_node_wwn.fcoe.authority = htons ( FCOE_AUTHORITY_IEEE );
+	memcpy ( fc_f_node_wwn.fcoe.mac, fc_f_mac,
+		 sizeof ( fc_f_node_wwn.fcoe.mac ) );
+	fc_f_port_wwn.fcoe.authority = htons ( FCOE_AUTHORITY_IEEE_EXTENDED );
+	memcpy ( fc_f_port_wwn.fcoe.mac, fc_f_mac,
+		 sizeof ( fc_f_port_wwn.fcoe.mac ) );
 
 	/* Parse command-line options */
 	if ( ( ifidx = parse_options ( argc, argv ) ) < 0 )

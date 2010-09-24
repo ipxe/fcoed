@@ -18,9 +18,11 @@
 
 #include <string.h>
 #include <netinet/if_ether.h>
+#include <arpa/inet.h>
 #include <pcap.h>
 #include <syslog.h>
 #include "list.h"
+#include "fc.h"
 #include "fcoe.h"
 #include "fcoed.h"
 
@@ -29,22 +31,29 @@
  *
  * @v intf		Interface
  * @v port		Port
- * @v data		Data
- * @v len		Length of data
+ * @v fcoehdr		FCoE frame
+ * @v len		Length of FCoE frame
  * @ret rc		Return status code
  */
-static int forward_fcoe ( struct fcoed_interface *intf, struct fcoed_port *port,
-			  void *data, size_t len ) {
-	struct ethhdr *ethhdr = data;
+static int fcoe_tx ( struct fcoed_interface *intf, struct fcoed_port *port,
+		     struct fcoe_header *fcoehdr, size_t len ) {
+	struct {
+		struct ethhdr ethhdr;
+		char fcoe[len];
+	} __attribute__ (( packed )) data;
 	size_t sent_len;
 
-	/* Rewrite MAC addresses */
-	memcpy ( ethhdr->h_dest, port->mac, sizeof ( ethhdr->h_dest ) );
-	memcpy ( ethhdr->h_source, fc_f_mac, sizeof ( ethhdr->h_source ) );
+	/* Build complete data */
+	memcpy ( data.ethhdr.h_dest, port->mac,
+		 sizeof ( data.ethhdr.h_dest ) );
+	memcpy ( data.ethhdr.h_source, fc_f_mac,
+		 sizeof ( data.ethhdr.h_source ) );
+	data.ethhdr.h_proto = htons ( ETH_P_FCOE );
+	memcpy ( data.fcoe, fcoehdr, sizeof ( data.fcoe ) );
 
 	/* Send packet */
-	sent_len = pcap_inject ( intf->pcap, data, len );
-	if ( sent_len != len ) {
+	sent_len = pcap_inject ( intf->pcap, &data, sizeof ( data ) );
+	if ( sent_len != sizeof ( data ) ) {
 		logmsg ( LOG_ERR, "could not forward to %s: %s\n",
 			 intf->name, pcap_geterr ( intf->pcap ) );
 		return -1;
@@ -57,45 +66,36 @@ static int forward_fcoe ( struct fcoed_interface *intf, struct fcoed_port *port,
  * Receive FCoE packet
  *
  * @v intf		Interface
+ * @v src		Source address
  * @v data		Data
  * @v len		Length of data
  * @ret rc		Return status code
  */
-int receive_fcoe ( struct fcoed_interface *intf, void *data, size_t len ) {
-	struct ethhdr *ethhdr = data;
-	struct fcoe_header *fcoehdr;
-	struct fc_frame_header *fchdr;
+int fcoe_rx ( struct fcoed_interface *intf, uint8_t *src __unused,
+	      void *data, size_t len ) {
+	struct {
+		struct fcoe_header fcoehdr;
+		struct fc_frame_header fchdr;
+	} __attribute__ (( packed )) *frame = data;
 	struct fc_port_id *dest_id;
 	struct fcoed_interface *dest_intf;
 	struct fcoed_port *dest_port;
 
 	/* Locate FCoE header */
-	fcoehdr = ( ( void * ) ( ethhdr + 1 ) );
-	if ( ( data + len ) < ( ( void * ) ( fcoehdr + 1 ) ) ) {
-		logmsg ( LOG_ERR, "received truncated FCoE header\n" );
+	if ( len < sizeof ( *frame ) ) {
+		logmsg ( LOG_ERR, "received truncated FCoE frame\n" );
 		return -1;
 	}
-
-	/* Locate FC header */
-	fchdr = ( ( void * ) ( fcoehdr + 1 ) );
-	if ( ( data + len ) < ( ( void * ) ( fchdr + 1 ) ) ) {
-		logmsg ( LOG_ERR, "received truncated FC header\n" );
-		return -1;
-	}
-	dest_id = &fchdr->d_id;
 
 	/* Identify destination interface and port */
-	list_for_each_entry ( dest_intf, &interfaces, list ) {
-		list_for_each_entry ( dest_port, &intf->ports, list ) {
-			if ( memcmp ( &dest_port->port_id, dest_id,
-				      sizeof ( dest_port->port_id ) ) != 0 ) {
-				return forward_fcoe ( dest_intf, dest_port,
-						      data, len );
-			}
-		}
+	dest_id = &frame->fchdr.d_id;
+	if ( find_port_by_id ( dest_id, &dest_intf, &dest_port ) < 0 ) {
+		logmsg ( LOG_WARNING, "received FCoE on %s for unknown ID "
+			 FC_PORT_ID_FMT "\n", intf->name,
+			 FC_PORT_ID_ARGS ( dest_id ) );
+		return -1;
 	}
 
-	logmsg ( LOG_WARNING, "received FCoE on %s for unknown ID "
-		 FC_PORT_ID_FMT "\n", intf->name, FC_PORT_ID_ARGS ( dest_id ) );
-	return 0;
+	/* Forward to destination port */
+	return fcoe_tx ( dest_intf, dest_port, &frame->fcoehdr, len );
 }

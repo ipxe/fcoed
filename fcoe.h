@@ -22,16 +22,7 @@
 #include <stdint.h>
 #include <net/if.h>
 #include <netinet/if_ether.h>
-
-/** An FCoE MAC address prefix (FC-MAP) */
-struct fc_map {
-	uint8_t bytes[3];
-} __attribute__ (( packed ));
-
-/** A Fibre Channel name */
-struct fc_name {
-	uint8_t bytes[8];
-} __attribute__ (( packed ));
+#include "fc.h"
 
 /** An FCoE name */
 union fcoe_name {
@@ -52,8 +43,8 @@ union fcoe_name {
 /** IEEE extended */
 #define FCOE_AUTHORITY_IEEE_EXTENDED 0x2000
 
-/** A Fibre Channel port identifier */
-struct fc_port_id {
+/** An FCoE MAC address prefix (FC-MAP) */
+struct fc_map {
 	uint8_t bytes[3];
 } __attribute__ (( packed ));
 
@@ -62,7 +53,7 @@ struct fcoe_mac {
 	/** MAC address prefix */
 	struct fc_map fc_map;
 	/** Port ID */
-	struct fc_port_id id;
+	struct fc_port_id port_id;
 } __attribute__ (( packed ));
 
 /** An FCoE frame header */
@@ -75,40 +66,8 @@ struct fcoe_header {
 	uint8_t sof;
 } __attribute__ (( packed ));
 
-/** A Fibre Channel Frame Header */
-struct fc_frame_header {
-	/** Routing control */
-	uint8_t r_ctl;
-	/** Destination ID */
-	struct fc_port_id d_id;
-	/** Class-specific control / Priority */
-	uint8_t cs_ctl_prio;
-	/** Source ID */
-	struct fc_port_id s_id;
-	/** Data structure type */
-	uint8_t type;
-	/** Frame control - exchange and sequence */
-	uint8_t f_ctl_es;
-	/** Frame control - acknowledgements  */
-	uint8_t f_ctl_ack;
-	/** Frame control - miscellaneous */
-	uint8_t f_ctl_misc;
-	/** Sequence ID */
-	uint8_t seq_id;
-	/** Data field control */
-	uint8_t df_ctl;
-	/** Sequence count */
-	uint16_t seq_cnt;
-	/** Originator exchange ID */
-	uint16_t ox_id;
-	/** Responder exchange ID */
-	uint16_t rx_id;
-	/** Parameter */
-	uint32_t parameter;
-} __attribute__ (( packed ));
-
 struct fcoed_interface;
-extern int receive_fcoe ( struct fcoed_interface *intf, void *data,
-			  size_t len );
+extern int fcoe_rx ( struct fcoed_interface *intf, uint8_t *src,
+		     void *data, size_t len );
 
 #endif /* _FCOE_H */

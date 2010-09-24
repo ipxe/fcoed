@@ -41,20 +41,8 @@
 #define MAC_ARGS(mac) \
 	(mac)[0], (mac)[1], (mac)[2], (mac)[3], (mac)[4], (mac)[5]
 
-/** printf() arguments for FC names */
-#define FC_NAME_FMT "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
-
-/** printf() arguments for FC names */
-#define FC_NAME_ARGS(name)						       \
-	(name)->bytes[0], (name)->bytes[1], (name)->bytes[2], (name)->bytes[3],\
-	(name)->bytes[4], (name)->bytes[5], (name)->bytes[6], (name)->bytes[7]
-
-/** printf() format for FC port IDs */
-#define FC_PORT_ID_FMT "%02x.%02x.%02x"
-
-/** printf() arguments for FC port IDs */
-#define FC_PORT_ID_ARGS(port_id) \
-	(port_id)->bytes[0], (port_id)->bytes[1], (port_id)->bytes[2]
+/** Mark an argument as unused */
+#define __unused __attribute__ (( unused ))
 
 /** An interface on which fcoed operates */
 struct fcoed_interface {
@@ -77,18 +65,32 @@ struct fcoed_port {
 	struct list_head list;
 	/** Port ID */
 	struct fc_port_id port_id;
-	/** MAC address */
+	/** FCoE MAC address */
 	uint8_t mac[ETH_ALEN];
+	/** Real MAC address */
+	uint8_t real_mac[ETH_ALEN];
 };
 
 extern struct fc_map fc_map;
+extern struct fc_port_id fc_f_port_id;
 extern uint8_t fc_f_mac[ETH_ALEN];
-extern struct list_head interfaces;
+extern union fcoe_name fc_f_node_wwn;
+extern union fcoe_name fc_f_port_wwn;
+extern int allow_spma;
 
 extern void logmsg ( int level, const char *format, ... )
 	__attribute__ (( format ( printf, 2, 3 ) ));
-extern int add_port ( struct fcoed_interface *intf, struct fc_port_id *port_id,
-		      uint8_t mac[ETH_ALEN] );
+extern void random_ether_addr ( uint8_t *mac );
+extern int add_port ( struct fcoed_interface *intf, uint8_t *real_mac,
+		      uint8_t *mac, struct fcoed_port **port );
+extern int find_port_by_mac ( uint8_t *mac, struct fcoed_interface **intf,
+			      struct fcoed_port **port );
+extern int find_port_by_real_mac ( uint8_t *real_mac,
+				   struct fcoed_interface **intf,
+				   struct fcoed_port **port );
+extern int find_port_by_id ( struct fc_port_id *port_id,
+			     struct fcoed_interface **intf,
+			     struct fcoed_port **port );
 extern void remove_port ( struct fcoed_port *port );
 
 #endif /* _FCOED_H */
