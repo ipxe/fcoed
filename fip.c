@@ -313,7 +313,8 @@ static int fip_rx_flogi_request ( struct fcoed_interface *intf,
 	response.ls_acc.els.command = FC_ELS_LS_ACC;
 	response.ls_acc.els.common.version = htons ( FC_LOGIN_VERSION );
 	response.ls_acc.els.common.credit = htons ( FC_LOGIN_DEFAULT_B2B );
-	response.ls_acc.els.common.flags = htons ( FC_LOGIN_CONTINUOUS_OFFSET );
+	response.ls_acc.els.common.flags =
+		htons ( FC_LOGIN_CONTINUOUS_OFFSET | FC_LOGIN_F_PORT );
 	response.ls_acc.els.common.mtu = htons ( FC_LOGIN_DEFAULT_MTU );
 	memcpy ( &response.ls_acc.els.port_wwn, &fc_f_port_wwn,
 		 sizeof ( response.ls_acc.els.port_wwn ) );
