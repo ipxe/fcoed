@@ -66,7 +66,35 @@ struct fcoe_header {
 	uint8_t sof;
 } __attribute__ (( packed ));
 
+/** Start of Frame marker values */
+enum fcoe_sof {
+	FCOE_SOF_F = 0x28,	/**< Start of Frame Class F */
+	FCOE_SOF_I2 = 0x2d,	/**< Start of Frame Initiate Class 2 */
+	FCOE_SOF_N2 = 0x35,	/**< Start of Frame Normal Class 2 */
+	FCOE_SOF_I3 = 0x2e,	/**< Start of Frame Initiate Class 3 */
+	FCOE_SOF_N3 = 0x36,	/**< Start of Frame Normal Class 3 */
+};
+
+/** An FCoE footer */
+struct fcoe_footer {
+	/** CRC */
+	uint32_t crc;
+	/** End of frame marker */
+	uint8_t eof;
+	/** Reserved */
+	uint8_t reserved[3];
+} __attribute__ (( packed ));
+
+/** End of Frame marker value */
+enum fcoe_eof {
+	FCOE_EOF_N = 0x41,	/**< End of Frame Normal */
+	FCOE_EOF_T = 0x42,	/**< End of Frame Terminate */
+	FCOE_EOF_NI = 0x49,	/**< End of Frame Invalid */
+	FCOE_EOF_A = 0x50,	/**< End of Frame Abort */
+};
+
 struct fcoed_interface;
+extern int fc_tx ( struct fc_frame_header *fchdr, size_t len );
 extern int fcoe_rx ( struct fcoed_interface *intf, uint8_t *src,
 		     void *data, size_t len );
 

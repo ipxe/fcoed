@@ -26,6 +26,9 @@ struct fc_name {
 	uint8_t bytes[8];
 } __attribute__ (( packed ));
 
+/** Length of Fibre Channel name text */
+#define FC_NAME_STRLEN 23 /* "xx:xx:xx:xx:xx:xx:xx:xx" */
+
 /** printf() arguments for FC names */
 #define FC_NAME_FMT "%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x"
 
@@ -38,6 +41,9 @@ struct fc_name {
 struct fc_port_id {
 	uint8_t bytes[3];
 } __attribute__ (( packed ));
+
+/** Length of Fibre Channel port identifier text */
+#define FC_PORT_ID_STRLEN 8 /* "xx.xx.xx" */
 
 /** printf() format for FC port IDs */
 #define FC_PORT_ID_FMT "%02x.%02x.%02x"
@@ -121,6 +127,7 @@ enum fc_type {
 	FC_TYPE_BLS = 0x00,		/**< Basic Link Service */
 	FC_TYPE_ELS = 0x01,		/**< Extended Link Service */
 	FC_TYPE_FCP = 0x08,		/**< Fibre Channel Protocol */
+	FC_TYPE_CT  = 0x20,		/**< Common Transport */
 };
 
 /** Fibre Channel Frame Control - Exchange and Sequence */
