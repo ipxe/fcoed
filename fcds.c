@@ -26,6 +26,12 @@
 #include "fcels.h"
 #include "fcoed.h"
 
+/** Maximum size of name server responses
+ *
+ * This is a policy decision.
+ */
+#define FC_NS_BUFSIZE 1024
+
 /**
  * Parse port ID
  *
@@ -715,10 +721,13 @@ static int fc_ns_rx_get ( struct fc_frame_header *fchdr,
 			  struct fc_ns_object_type *value_type ) {
 	struct fc_ct_header *cthdr = ( ( void * ) ( fchdr + 1 ) );
 	struct fc_ns_object_set *objects;
+	size_t cthdrsize = ntohs ( cthdr->size );
+	size_t bufsize = ( (( cthdrsize > 0 ) && ( cthdrsize < FC_NS_BUFSIZE ))
+			   ? cthdrsize : FC_NS_BUFSIZE );
 	struct {
 		struct fc_frame_header fchdr;
 		struct fc_ct_header cthdr;
-		char buf[ ntohs ( cthdr->size ) ];
+		char buf[bufsize];
 	} __attribute__ (( packed )) frame;
 	struct fc_ns_multi *multi = NULL;
 	void *data = &frame.buf;
