@@ -562,15 +562,21 @@ static int parse_options ( int argc, char **argv ) {
 			will_daemonise = 0;
 			break;
 		case 'm':
-			if ( set_fcmap ( optarg ) < 0 )
+			if ( set_fcmap ( optarg ) < 0 ) {
+				logmsg ( LOG_ERR, "Invalid FC-MAP \"%s\"\n",
+					 optarg );
 				return -1;
+			}
 			break;
 		case 's':
 			allow_spma = 1;
 			break;
 		case 'V':
-			if ( set_fc_vlan ( optarg ) < 0 )
+			if ( set_fc_vlan ( optarg ) < 0 ) {
+				logmsg ( LOG_ERR, "Invalid VLAN \"%s\"\n",
+					 optarg );
 				return -1;
+			}
 			break;
 		default:
 			logmsg ( LOG_ERR, "Unrecognised option '-%c'\n", c );
