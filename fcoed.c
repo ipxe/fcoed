@@ -77,6 +77,9 @@ struct fc_port_id fc_gs_port_id = { { 0xff, 0xff, 0xfc } };
 /** Server-provided MAC addresses are allowed */
 int allow_spma = 0;
 
+/** Advertised VLAN */
+uint16_t fc_vlan = 0;
+
 /** List of interfaces */
 static LIST_HEAD ( interfaces );
 
@@ -142,6 +145,21 @@ static int set_fcmap ( const char *map_text ) {
 		ptr++;
 	}
 
+	return 0;
+}
+
+/**
+ * Set Fibre Channel VLAN
+ *
+ * @v vlan_text		VLAN as text
+ * @ret rc		Return status code
+ */
+static int set_fc_vlan ( const char *vlan_text ) {
+	char *endp;
+
+	fc_vlan = strtoul ( vlan_text, &endp, 0 );
+	if ( *endp )
+		return -1;
 	return 0;
 }
 
@@ -506,7 +524,8 @@ static void usage ( char **argv ) {
 		 "  -h|--help               Print this help message\n"
 		 "  -n|--no-daemon          Run in foreground\n"
 		 "  -m|--map=XX.XX.XX       Specify FC-MAP\n"
-		 "  -s|--spma               Allow server-provided MACs\n",
+		 "  -s|--spma               Allow server-provided MACs\n"
+		 "  -V|--vlan=id            Advertise VLAN\n",
 		 argv[0] );
 }
 
@@ -523,6 +542,7 @@ static int parse_options ( int argc, char **argv ) {
 		{ "no-daemon", 0, NULL, 'n' },
 		{ "map", required_argument, NULL, 'm' },
 		{ "spma", 0, NULL, 's' },
+		{ "vlan", required_argument, NULL, 'V' },
 		{ NULL, 0, NULL, 0 },
 	};
 	int longidx;
@@ -530,7 +550,7 @@ static int parse_options ( int argc, char **argv ) {
 
 	/* Parse command-line options */
 	while ( 1 ) {
-		c = getopt_long ( argc, argv, "hnm:s", longopts, &longidx );
+		c = getopt_long ( argc, argv, "hnm:sV:", longopts, &longidx );
 		if ( c < 0 )
 			break;
 
@@ -547,6 +567,10 @@ static int parse_options ( int argc, char **argv ) {
 			break;
 		case 's':
 			allow_spma = 1;
+			break;
+		case 'V':
+			if ( set_fc_vlan ( optarg ) < 0 )
+				return -1;
 			break;
 		default:
 			logmsg ( LOG_ERR, "Unrecognised option '-%c'\n", c );

@@ -461,6 +461,54 @@ static int fip_rx_keep_alive ( struct fcoed_interface *intf,
 	( void ) flags;
 	return 0;
 }
+
+/**
+ * Receive FIP VLAN request
+ *
+ * @v intf		Interface
+ * @v src		Source address
+ * @v descs		Descriptor list
+ * @v flags		Flags
+ * @ret rc		Return status code
+ */
+static int fip_rx_vlan_request ( struct fcoed_interface *intf,
+				 uint8_t *src,
+				 struct fip_descriptors *descs,
+				 unsigned int flags __unused ) {
+	struct fip_mac_address *mac_address = fip_mac_address ( descs );
+	struct {
+		struct fip_header hdr;
+		struct fip_mac_address mac_address;
+		struct fip_vlan vlan;
+	} __attribute__ (( packed )) response;
+
+	/* Sanity check */
+	if ( ! mac_address ) {
+		logmsg ( LOG_ERR, "received FIP VLAN request missing MAC "
+			 "address\n" );
+		return -1;
+	}
+
+	logmsg ( LOG_INFO, "received FIP VLAN request from MAC " MAC_FMT "\n",
+		 MAC_ARGS ( mac_address->mac ) );
+
+	/* Construct response */
+	memset ( &response, 0, sizeof ( response ) );
+	response.hdr.version = FIP_VERSION;
+	response.hdr.code = htons ( FIP_CODE_VLAN );
+	response.hdr.subcode = FIP_VLAN_NOTIFY;
+	response.hdr.len =
+		htons ( ( sizeof ( response ) - sizeof ( response.hdr ) ) / 4 );
+	response.mac_address.type = FIP_MAC_ADDRESS;
+	response.mac_address.len = ( sizeof ( response.mac_address ) / 4 );
+	memcpy ( response.mac_address.mac, &fc_f_mac,
+		 sizeof ( response.mac_address.mac ) );
+	response.vlan.type = FIP_VLAN;
+	response.vlan.len = ( sizeof ( response.vlan ) / 4 );
+	response.vlan.vlan = htons ( fc_vlan );
+
+	return fip_tx ( intf, src, &response.hdr, sizeof ( response ) );
+}
  
 /** A FIP handler */
 struct fip_handler {
@@ -489,6 +537,8 @@ static struct fip_handler fip_handlers[] = {
 	  fip_rx_els_request },
 	{ FIP_CODE_MAINTAIN, FIP_MAINTAIN_KEEP_ALIVE,
 	  fip_rx_keep_alive },
+	{ FIP_CODE_VLAN, FIP_VLAN_REQUEST,
+	  fip_rx_vlan_request },
 };
 
 /**
