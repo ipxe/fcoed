@@ -492,6 +492,10 @@ static int fip_rx_vlan_request ( struct fcoed_interface *intf,
 	logmsg ( LOG_INFO, "received FIP VLAN request from MAC " MAC_FMT "\n",
 		 MAC_ARGS ( mac_address->mac ) );
 
+	/* Ignore request unless we are supporting VLAN discovery */
+	if ( ! fc_vlan )
+		return 0;
+
 	/* Construct response */
 	memset ( &response, 0, sizeof ( response ) );
 	response.hdr.version = FIP_VERSION;
