@@ -78,7 +78,7 @@ extern union fcoe_name fc_f_node_wwn;
 extern union fcoe_name fc_f_port_wwn;
 extern struct fc_port_id fc_gs_port_id;
 extern int allow_spma;
-extern uint16_t fc_vlan;
+extern int fc_vlan;
 
 extern void logmsg ( int level, const char *format, ... )
 	__attribute__ (( format ( printf, 2, 3 ) ));

@@ -493,7 +493,7 @@ static int fip_rx_vlan_request ( struct fcoed_interface *intf,
 		 MAC_ARGS ( mac_address->mac ) );
 
 	/* Ignore request unless we are supporting VLAN discovery */
-	if ( ! fc_vlan )
+	if ( fc_vlan < 0 )
 		return 0;
 
 	/* Construct response */

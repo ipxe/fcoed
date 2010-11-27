@@ -78,7 +78,7 @@ struct fc_port_id fc_gs_port_id = { { 0xff, 0xff, 0xfc } };
 int allow_spma = 0;
 
 /** Advertised VLAN */
-uint16_t fc_vlan = 0;
+int fc_vlan = -1;
 
 /** List of interfaces */
 static LIST_HEAD ( interfaces );
@@ -159,6 +159,8 @@ static int set_fc_vlan ( const char *vlan_text ) {
 
 	fc_vlan = strtoul ( vlan_text, &endp, 0 );
 	if ( *endp )
+		return -1;
+	if ( ( fc_vlan < 0 ) || ( fc_vlan >= 4095 ) )
 		return -1;
 	return 0;
 }
