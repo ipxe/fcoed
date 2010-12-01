@@ -44,6 +44,14 @@
 /** Mark an argument as unused */
 #define __unused __attribute__ (( unused ))
 
+/** Define ETH_P_FCOE and ETH_P_FIP if necessary */
+#ifndef ETH_P_FCOE
+#define ETH_P_FCOE 0x8906
+#endif
+#ifndef ETH_P_FIP
+#define ETH_P_FIP 0x8914
+#endif
+
 /** An interface on which fcoed operates */
 struct fcoed_interface {
 	/** List of interfaces */
