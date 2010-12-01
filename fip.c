@@ -280,7 +280,7 @@ static int fip_rx_flogi_request ( struct fcoed_interface *intf,
 	} __attribute__ (( packed )) response;
 
 	/* Sanity check */
-	if ( ( flogi->len * 4 ) < sizeof ( *flogi ) ) {
+	if ( ( flogi->len * 4U ) < sizeof ( *flogi ) ) {
 		logmsg ( LOG_ERR, "received underlength FLOGI\n" );
 		return -1;
 	}
