@@ -157,6 +157,24 @@ static int fc_ns_port_name_store ( const union fc_ns_data *value,
 }
 
 /**
+ * Fetch port name
+ *
+ * @v objects		Object set
+ * @v value		Value
+ * @v len		Maximum length of value
+ * @ret len		Length consumed, or negative error
+ */
+static int fc_ns_port_name_fetch ( struct fc_ns_object_set *objects,
+				   union fc_ns_data *value, size_t len ) {
+
+	if ( len < sizeof ( value->name ) )
+		return -EINVAL;
+	memcpy ( &value->name, &objects->port_name,
+		 sizeof ( value->name ) );
+	return sizeof ( value->name );
+}
+
+/**
  * Compare node name
  *
  * @v key		Key
@@ -183,6 +201,24 @@ static int fc_ns_node_name_store ( const union fc_ns_data *value,
 	return 0;
 }
 
+/**
+ * Fetch node name
+ *
+ * @v objects		Object set
+ * @v value		Value
+ * @v len		Maximum length of value
+ * @ret len		Length consumed, or negative error
+ */
+static int fc_ns_node_name_fetch ( struct fc_ns_object_set *objects,
+				   union fc_ns_data *value, size_t len ) {
+
+	if ( len < sizeof ( value->name ) )
+		return -EINVAL;
+	memcpy ( &value->name, &objects->node_name,
+		 sizeof ( value->name ) );
+	return sizeof ( value->name );
+}
+
 /** Port name object type */
 static struct fc_ns_object_type fc_ns_port_name_type = {
 	.name = "PN",
@@ -194,6 +230,7 @@ static struct fc_ns_object_type fc_ns_port_name_type = {
 	.parse_value = fc_ns_name_parse,
 	.transcribe_value = fc_ns_name_transcribe,
 	.store_value = fc_ns_port_name_store,
+	.fetch_value = fc_ns_port_name_fetch,
 };
 
 /** Node name object type */
@@ -207,6 +244,7 @@ static struct fc_ns_object_type fc_ns_node_name_type = {
 	.parse_value = fc_ns_name_parse,
 	.transcribe_value = fc_ns_name_transcribe,
 	.store_value = fc_ns_node_name_store,
+	.fetch_value = fc_ns_node_name_fetch,
 };
 
 /**
