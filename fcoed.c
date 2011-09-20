@@ -74,6 +74,9 @@ static uint8_t all_fcf_macs[ETH_ALEN] =
 /** FC generic services port ID */
 struct fc_port_id fc_gs_port_id = { { 0xff, 0xff, 0xfc } };
 
+/** FC link services port ID */
+struct fc_port_id fc_ls_port_id = { { 0xff, 0xff, 0xfd } };
+
 /** Server-provided MAC addresses are allowed */
 int allow_spma = 0;
 

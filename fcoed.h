@@ -84,6 +84,7 @@ extern struct fc_port_id fc_f_port_id;
 extern uint8_t fc_f_mac[ETH_ALEN];
 extern union fcoe_name fc_f_node_wwn;
 extern union fcoe_name fc_f_port_wwn;
+extern struct fc_port_id fc_ls_port_id;
 extern struct fc_port_id fc_gs_port_id;
 extern int allow_spma;
 extern int fc_vlan;

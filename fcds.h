@@ -383,5 +383,6 @@ struct fc_ns_object_type {
 
 struct fc_frame_header;
 extern int fc_gs_rx ( struct fc_frame_header *fchdr, size_t len );
+extern int fc_ls_rx ( struct fc_frame_header *fchdr, size_t len );
 
 #endif /* _FCDS_H */

@@ -1068,3 +1068,78 @@ int fc_gs_rx ( struct fc_frame_header *fchdr, size_t len ) {
 		return -1;
 	}
 }
+
+/**
+ * Receive link service SCR frame
+ *
+ * @v fchdr		Fibre Channel frame
+ * @v len		Length of Fibre Channel frame
+ * @ret rc		Return status code
+ */
+static int fc_ls_rx_scr ( struct fc_frame_header *fchdr,
+			  size_t len __unused ) {
+	struct fc_scr_request_frame *scr = ( ( void * ) ( fchdr + 1 ) );
+	struct {
+		struct fc_frame_header fchdr;
+		struct fc_scr_response_frame scr;
+	} __attribute__ (( packed )) frame;
+
+	logmsg ( LOG_INFO, "FC LS SCR from ID " FC_PORT_ID_FMT " function %d\n",
+		 FC_PORT_ID_ARGS ( &fchdr->s_id ), scr->function );
+
+	/* Construct response frame */
+	memset ( &frame, 0, sizeof ( frame ) );
+	frame.fchdr.r_ctl = ( FC_R_CTL_ELS | FC_R_CTL_SOL_CTRL );
+	memcpy ( &frame.fchdr.d_id, &fchdr->s_id,
+		 sizeof ( frame.fchdr.d_id ) );
+	memcpy ( &frame.fchdr.s_id, &fc_ls_port_id,
+		 sizeof ( frame.fchdr.s_id ) );
+	frame.fchdr.type = FC_TYPE_ELS;
+	frame.fchdr.f_ctl_es = ( FC_F_CTL_ES_RESPONDER |
+				 FC_F_CTL_ES_END | FC_F_CTL_ES_LAST );
+	frame.fchdr.ox_id = fchdr->ox_id;
+	frame.fchdr.rx_id = random();
+	frame.scr.command = FC_ELS_LS_ACC;
+
+	/* Transmit frame */
+	return fc_tx ( &frame.fchdr, sizeof ( frame ) );
+}
+
+/**
+ * Receive link service ELS frame
+ *
+ * @v fchdr		Fibre Channel frame
+ * @v len		Length of Fibre Channel frame
+ * @ret rc		Return status code
+ */
+static int fc_ls_rx_els ( struct fc_frame_header *fchdr, size_t len ) {
+	struct fc_els_frame_common *fcels = ( ( void * ) ( fchdr + 1 ) );
+
+	switch ( fcels->command ) {
+	case FC_ELS_SCR:
+		return fc_ls_rx_scr ( fchdr, len );
+	default:
+		logmsg ( LOG_ERR, "FC LS received unsupported ELS command "
+			 "0x%02x\n", fcels->command );
+		return -1;
+	}
+}
+
+/**
+ * Receive link service frame
+ *
+ * @v fchdr		Fibre Channel frame
+ * @v len		Length of Fibre Channel frame
+ * @ret rc		Return status code
+ */
+int fc_ls_rx ( struct fc_frame_header *fchdr, size_t len ) {
+
+	switch ( fchdr->type ) {
+	case FC_TYPE_ELS :
+		return fc_ls_rx_els ( fchdr, len );
+	default:
+		logmsg ( LOG_ERR, "FC LS received unsupported frame type "
+			 "0x%02x\n", fchdr->type );
+		return -1;
+	}
+}

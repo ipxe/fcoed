@@ -40,6 +40,7 @@ enum fc_els_command_code {
 	FC_ELS_RTV = 0x0e,		/**< Read Timeout Value */
 	FC_ELS_PRLI = 0x20,		/**< Process Login */
 	FC_ELS_PRLO = 0x21,		/**< Process Logout */
+	FC_ELS_SCR = 0x62,		/**< State Change Registration */
 };
 
 /** A Fibre Channel LS_RJT frame */
@@ -313,5 +314,23 @@ struct fc_rtv_response_frame {
 
 /** Short R_T timeout */
 #define FC_RTV_SHORT_R_T_TOV 0x0008
+
+/** A Fibre Channel SCR request frame */
+struct fc_scr_request_frame {
+	/** ELS command code */
+	uint8_t command;
+	/** Reserved */
+	uint8_t reserved[6];
+	/** Registration function */
+	uint8_t function;
+} __attribute__ (( packed ));
+
+/** A Fibre Channel SCR response frame */
+struct fc_scr_response_frame {
+	/** ELS command code */
+	uint8_t command;
+	/** Reserved */
+	uint8_t reserved[3];
+} __attribute__ (( packed ));
 
 #endif /* _FCELS_H */

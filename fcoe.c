@@ -154,6 +154,8 @@ int fcoe_rx ( struct fcoed_interface *intf __unused, uint8_t *src __unused,
 	/* Intercept traffic for special port IDs */
 	if ( memcmp ( dest_id, &fc_gs_port_id, sizeof ( *dest_id ) ) == 0 )
 		return fc_gs_rx ( fchdr, len );
+	if ( memcmp ( dest_id, &fc_ls_port_id, sizeof ( *dest_id ) ) == 0 )
+		return fc_ls_rx ( fchdr, len );
 
 	/* Forward FC frame */
 	return fc_tx ( fchdr, len );
