@@ -421,8 +421,8 @@ FIP_DESCRIPTOR ( FIP_VLAN, vlan );
 
 struct fcoed_interface;
 extern int fip_tx_discovery_advertisement ( struct fcoed_interface *intf,
-					    uint8_t *dst );
-extern int fip_rx ( struct fcoed_interface *intf, uint8_t *src,
+					    uint16_t vlan, uint8_t *dst );
+extern int fip_rx ( struct fcoed_interface *intf, uint16_t vlan, uint8_t *src,
 		    void *data, size_t len );
 
 #endif /* _FIP_H */

@@ -24,6 +24,14 @@
 #include <netinet/if_ether.h>
 #include "fc.h"
 
+/** A VLAN header */
+struct vlan_header {
+	/** Tag control information */
+	uint16_t tci;
+	/** Encapsulated protocol */
+	uint16_t net_proto;
+} __attribute__ (( packed ));
+
 /** An FCoE name */
 union fcoe_name {
 	/** Fibre Channel name */
@@ -95,7 +103,7 @@ enum fcoe_eof {
 
 struct fcoed_interface;
 extern int fc_tx ( struct fc_frame_header *fchdr, size_t len );
-extern int fcoe_rx ( struct fcoed_interface *intf, uint8_t *src,
-		     void *data, size_t len );
+extern int fcoe_rx ( struct fcoed_interface *intf, uint16_t vlan,
+		     uint8_t *src, void *data, size_t len );
 
 #endif /* _FCOE_H */

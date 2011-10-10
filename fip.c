@@ -101,29 +101,41 @@ static int fip_parse ( struct fip_header *fiphdr, size_t len,
  * Transmit FIP packet
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v dst		Destination MAC address
  * @v fiphdr		FIP frame
  * @v len		Length of FIP frame
  * @ret rc		Return status code
  */
-static int fip_tx ( struct fcoed_interface *intf, uint8_t *dst,
+static int fip_tx ( struct fcoed_interface *intf, uint16_t vlan, uint8_t *dst,
 		    struct fip_header *fiphdr, size_t len ) {
 	struct {
 		struct ethhdr ethhdr;
+		struct vlan_header vlan;
 		char fip[len];
 	} __attribute__ (( packed )) data;
+	size_t data_len = sizeof ( data );
+	struct ethhdr *ethhdr = &data.ethhdr;
 	size_t sent_len;
 
 	/* Build complete data */
-	memcpy ( data.ethhdr.h_dest, dst, sizeof ( data.ethhdr.h_dest ) );
-	memcpy ( data.ethhdr.h_source, &fc_f_mac,
-		 sizeof ( data.ethhdr.h_source ) );
-	data.ethhdr.h_proto = htons ( ETH_P_FIP );
+	if ( ! vlan ) {
+		ethhdr = ( ( ( void * ) ethhdr ) + sizeof ( data.vlan ) );
+		data_len -= sizeof ( data.vlan );
+	}
+	memcpy ( ethhdr->h_dest, dst, sizeof ( ethhdr->h_dest ) );
+	memcpy ( ethhdr->h_source, &fc_f_mac, sizeof ( ethhdr->h_source ) );
+	ethhdr->h_proto = htons ( ETH_P_FIP );
+	if ( vlan ) {
+		data.vlan.tci = vlan;
+		data.vlan.net_proto = ethhdr->h_proto;
+		ethhdr->h_proto = ntohs ( ETH_P_8021Q );
+	}
 	memcpy ( data.fip, fiphdr, sizeof ( data.fip ) );
 
 	/* Send packet */
-	sent_len = pcap_inject ( intf->pcap, &data, sizeof ( data ) );
-	if ( sent_len != sizeof ( data ) ) {
+	sent_len = pcap_inject ( intf->pcap, ethhdr, data_len );
+	if ( sent_len != data_len ) {
 		logmsg ( LOG_ERR, "could not send FIP response to %s: %s\n",
 			 intf->name, pcap_geterr ( intf->pcap ) );
 		return -1;
@@ -136,11 +148,12 @@ static int fip_tx ( struct fcoed_interface *intf, uint8_t *dst,
  * Send FIP discovery advertisement
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v dst		Destination MAC address
  * @ret rc		Return status code
  */
 int fip_tx_discovery_advertisement ( struct fcoed_interface *intf,
-				     uint8_t *dst ) {
+				     uint16_t vlan, uint8_t *dst ) {
 	int solicited;
 	struct {
 		struct fip_header hdr;
@@ -187,20 +200,21 @@ int fip_tx_discovery_advertisement ( struct fcoed_interface *intf,
 	advert.fka_adv_p.len = ( sizeof ( advert.fka_adv_p ) / 4 );
 	advert.fka_adv_p.period = htonl ( FKA_ADV_PERIOD );
 
-	return fip_tx ( intf, dst, &advert.hdr, sizeof ( advert ) );
+	return fip_tx ( intf, vlan, dst, &advert.hdr, sizeof ( advert ) );
 }
 
 /**
  * Receive FIP discovery solicitation
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
 static int fip_rx_discovery_solicitation ( struct fcoed_interface *intf,
-					   uint8_t *src __unused,
+					   uint16_t vlan, uint8_t *src __unused,
 					   struct fip_descriptors *descs,
 					   unsigned int flags __unused ) {
 	struct fip_mac_address *mac_address = fip_mac_address ( descs );
@@ -228,7 +242,7 @@ static int fip_rx_discovery_solicitation ( struct fcoed_interface *intf,
 		 FC_NAME_FMT "\n", MAC_ARGS ( mac_address->mac ),
 		 FC_NAME_ARGS ( &name_id->name ) );
 
-	return fip_tx_discovery_advertisement ( intf, mac_address->mac );
+	return fip_tx_discovery_advertisement ( intf, vlan, mac_address->mac );
 }
 
 /**
@@ -260,14 +274,14 @@ static void fip_fc_respond ( struct fcoed_port *port,
  * Receive FIP FLOGI request frame
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
-static int fip_rx_flogi_request ( struct fcoed_interface *intf,
-				  uint8_t *src,
-				  struct fip_descriptors *descs,
+static int fip_rx_flogi_request ( struct fcoed_interface *intf, uint16_t vlan,
+				  uint8_t *src, struct fip_descriptors *descs,
 				  unsigned int flags ) {
 	struct fip_login *flogi = fip_flogi_request ( descs );
 	struct fip_mac_address *mac_address = fip_mac_address ( descs );
@@ -297,7 +311,7 @@ static int fip_rx_flogi_request ( struct fcoed_interface *intf,
 	}
 
 	/* Add port */
-	if ( add_port ( intf, src, mac, &port ) < 0 )
+	if ( add_port ( intf, vlan, src, mac, &port ) < 0 )
 		return -1;
 
 	/* Construct response */
@@ -327,20 +341,21 @@ static int fip_rx_flogi_request ( struct fcoed_interface *intf,
 	memcpy ( response.mac_address.mac, port->mac,
 		 sizeof ( response.mac_address.mac ) );
 	
-	return fip_tx ( intf, src, &response.hdr, sizeof ( response ) );
+	return fip_tx ( intf, vlan, src, &response.hdr, sizeof ( response ) );
 }
 
 /**
  * Receive FIP NPIV FDISC request frame
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
 static int fip_rx_npiv_fdisc_request ( struct fcoed_interface *intf,
-				       uint8_t *src,
+				       uint16_t vlan, uint8_t *src,
 				       struct fip_descriptors *descs,
 				       unsigned int flags ) {
 	struct fip_login *npiv_fdisc = fip_npiv_fdisc_request ( descs );
@@ -349,6 +364,7 @@ static int fip_rx_npiv_fdisc_request ( struct fcoed_interface *intf,
 	logmsg ( LOG_ERR, "received unsupported NPIV FDISC from " MAC_FMT "\n",
 		 MAC_ARGS ( mac_address->mac ) );
 	( void ) intf;
+	( void ) vlan;
 	( void ) src;
 	( void ) npiv_fdisc;
 	( void ) flags;
@@ -359,14 +375,14 @@ static int fip_rx_npiv_fdisc_request ( struct fcoed_interface *intf,
  * Receive FIP LOGO request frame
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
-static int fip_rx_logo_request ( struct fcoed_interface *intf,
-				 uint8_t *src,
-				 struct fip_descriptors *descs,
+static int fip_rx_logo_request ( struct fcoed_interface *intf, uint16_t vlan,
+				 uint8_t *src, struct fip_descriptors *descs,
 				 unsigned int flags ) {
 	struct fip_logo_request *logo = fip_logo_request ( descs );
 	struct fip_mac_address *mac_address = fip_mac_address ( descs );
@@ -374,6 +390,7 @@ static int fip_rx_logo_request ( struct fcoed_interface *intf,
 	logmsg ( LOG_ERR, "received unsupported LOGO from " MAC_FMT "\n",
 		 MAC_ARGS ( mac_address->mac ) );
 	( void ) intf;
+	( void ) vlan;
 	( void ) src;
 	( void ) logo;
 	( void ) flags;
@@ -384,14 +401,14 @@ static int fip_rx_logo_request ( struct fcoed_interface *intf,
  * Receive FIP ELP request frame
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
-static int fip_rx_elp_request ( struct fcoed_interface *intf,
-				uint8_t *src,
-				struct fip_descriptors *descs,
+static int fip_rx_elp_request ( struct fcoed_interface *intf, uint16_t vlan,
+				uint8_t *src, struct fip_descriptors *descs,
 				unsigned int flags ) {
 	struct fip_elp *elp = fip_elp_request ( descs );
 	struct fip_mac_address *mac_address = fip_mac_address ( descs );
@@ -399,6 +416,7 @@ static int fip_rx_elp_request ( struct fcoed_interface *intf,
 	logmsg ( LOG_ERR, "received unsupported ELP from " MAC_FMT "\n",
 		 MAC_ARGS ( mac_address->mac ) );
 	( void ) intf;
+	( void ) vlan;
 	( void ) src;
 	( void ) elp;
 	( void ) flags;
@@ -409,14 +427,14 @@ static int fip_rx_elp_request ( struct fcoed_interface *intf,
  * Receive FIP ELS request frame
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
-static int fip_rx_els_request ( struct fcoed_interface *intf,
-				uint8_t *src,
-				struct fip_descriptors *descs,
+static int fip_rx_els_request ( struct fcoed_interface *intf, uint16_t vlan,
+				uint8_t *src, struct fip_descriptors *descs,
 				unsigned int flags ) {
 	struct fip_mac_address *mac_address = fip_mac_address ( descs );
 
@@ -428,13 +446,14 @@ static int fip_rx_els_request ( struct fcoed_interface *intf,
 
 	/* Hand off to appropriate ELS handler */
 	if ( fip_flogi_request ( descs ) ) {
-		return fip_rx_flogi_request ( intf, src, descs, flags );
+		return fip_rx_flogi_request ( intf, vlan, src, descs, flags );
 	} else if ( fip_npiv_fdisc_request ( descs ) ) {
-		return fip_rx_npiv_fdisc_request ( intf, src, descs, flags );
+		return fip_rx_npiv_fdisc_request ( intf, vlan, src, descs,
+						   flags );
 	} else if ( fip_logo_request ( descs ) ) {
-		return fip_rx_logo_request ( intf, src, descs, flags );
+		return fip_rx_logo_request ( intf, vlan, src, descs, flags );
 	} else if ( fip_elp_request ( descs ) ) {
-		return fip_rx_elp_request ( intf, src, descs, flags );
+		return fip_rx_elp_request ( intf, vlan, src, descs, flags );
 	} else {
 		logmsg ( LOG_ERR, "received ELS missing FC frame\n" );
 		return -1;
@@ -445,17 +464,18 @@ static int fip_rx_els_request ( struct fcoed_interface *intf,
  * Receive FIP keepalive frame
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
-static int fip_rx_keep_alive ( struct fcoed_interface *intf,
-			       uint8_t *src,
-			       struct fip_descriptors *descs,
+static int fip_rx_keep_alive ( struct fcoed_interface *intf, uint16_t vlan,
+			       uint8_t *src, struct fip_descriptors *descs,
 			       unsigned int flags ) {
 	/* Do nothing */
 	( void ) intf;
+	( void ) vlan;
 	( void ) src;
 	( void ) descs;
 	( void ) flags;
@@ -466,14 +486,14 @@ static int fip_rx_keep_alive ( struct fcoed_interface *intf,
  * Receive FIP VLAN request
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v descs		Descriptor list
  * @v flags		Flags
  * @ret rc		Return status code
  */
-static int fip_rx_vlan_request ( struct fcoed_interface *intf,
-				 uint8_t *src,
-				 struct fip_descriptors *descs,
+static int fip_rx_vlan_request ( struct fcoed_interface *intf, uint16_t vlan,
+				 uint8_t *src, struct fip_descriptors *descs,
 				 unsigned int flags __unused ) {
 	struct fip_mac_address *mac_address = fip_mac_address ( descs );
 	struct {
@@ -511,7 +531,7 @@ static int fip_rx_vlan_request ( struct fcoed_interface *intf,
 	response.vlan.len = ( sizeof ( response.vlan ) / 4 );
 	response.vlan.vlan = htons ( fc_vlan );
 
-	return fip_tx ( intf, src, &response.hdr, sizeof ( response ) );
+	return fip_tx ( intf, vlan, src, &response.hdr, sizeof ( response ) );
 }
  
 /** A FIP handler */
@@ -524,13 +544,15 @@ struct fip_handler {
 	 * Receive FIP packet
 	 *
 	 * @v intf		Interface
+	 * @v vlan		VLAN tag, if present
 	 * @v src		Source address
 	 * @v descs		Descriptor list
 	 * @v flags		Flags
 	 * @ret rc		Return status code
 	 */
-	int ( * rx ) ( struct fcoed_interface *intf, uint8_t *src,
-		       struct fip_descriptors *descs, unsigned int flags );
+	int ( * rx ) ( struct fcoed_interface *intf, uint16_t vlan,
+		       uint8_t *src, struct fip_descriptors *descs,
+		       unsigned int flags );
 };
 
 /** FIP handlers */
@@ -549,12 +571,13 @@ static struct fip_handler fip_handlers[] = {
  * Receive FIP packet
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v data		FIP payload
  * @v len		Length of data
  * @ret rc		Return status code
  */
-int fip_rx ( struct fcoed_interface *intf, uint8_t *src,
+int fip_rx ( struct fcoed_interface *intf, uint16_t vlan, uint8_t *src,
 	     void *data, size_t len ) {
 	struct fip_header *fiphdr = data;
 	struct fip_descriptors descs;
@@ -571,7 +594,7 @@ int fip_rx ( struct fcoed_interface *intf, uint8_t *src,
 		handler = &fip_handlers[i];
 		if ( ( handler->code == ntohs ( fiphdr->code ) ) &&
 		     ( handler->subcode == fiphdr->subcode ) ) {
-			return handler->rx ( intf, src, &descs,
+			return handler->rx ( intf, vlan, src, &descs,
 					     ntohs ( fiphdr->flags ) );
 		}
 	}

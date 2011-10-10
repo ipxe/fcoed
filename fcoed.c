@@ -307,12 +307,13 @@ static void free_port_id ( struct fc_port_id *port_id ) {
  * Add port to FCoE interface
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v real_mac		Real MAC address
  * @v mac		FCoE MAC address, or NULL
  * @ret port		Port (if successful)
  * @ret rc		Return status code
  */
-int add_port ( struct fcoed_interface *intf, uint8_t *real_mac,
+int add_port ( struct fcoed_interface *intf, uint16_t vlan, uint8_t *real_mac,
 	       uint8_t *mac, struct fcoed_port **port ) {
 	struct fcoed_interface *old_intf;
 	struct fcoed_port *old_port;
@@ -354,6 +355,7 @@ int add_port ( struct fcoed_interface *intf, uint8_t *real_mac,
 	memcpy ( &(*port)->port_id, &port_id, sizeof ( (*port)->port_id ) );
 	memcpy ( (*port)->mac, mac, sizeof ( (*port)->mac ) );
 	memcpy ( (*port)->real_mac, real_mac, sizeof ( (*port)->real_mac ) );
+	(*port)->vlan = vlan;
 	list_add ( &(*port)->list, &intf->ports );
 
 	logmsg ( LOG_INFO, "added MAC " MAC_FMT " (really " MAC_FMT ") as "
@@ -647,6 +649,8 @@ static int receive ( struct fcoed_interface *intf ) {
 	struct pcap_pkthdr *pkt_header;
 	const unsigned char *pkt_data;
 	struct ethhdr *ethhdr;
+	struct vlan_header *vlan = NULL;
+	uint16_t proto;
 	size_t pkt_len;
 	void *payload;
 	size_t payload_len;
@@ -673,19 +677,33 @@ static int receive ( struct fcoed_interface *intf ) {
 			 "bytes)\n", pkt_len );
 		goto discard;
 	}
+	proto = ntohs ( ethhdr->h_proto );
 	payload = ( ethhdr + 1 );
 	payload_len = ( pkt_len - sizeof ( *ethhdr ) );
 
+	/* Strip VLAN header, if libpcap has failed to do so */
+	if ( proto == ETH_P_8021Q ) {
+		if ( payload_len < sizeof ( *vlan ) ) {
+			logmsg ( LOG_ERR, "received truncated VLAN header (%zd "
+				 "bytes)\n", payload_len );
+			goto discard;
+		}
+		vlan = payload;
+		proto = ntohs ( vlan->net_proto );
+		payload += sizeof ( *vlan );
+		payload_len -= sizeof ( *vlan );
+	}
+
 	/* Hand off packet to appropriate protocol */
-	switch ( ntohs ( ethhdr->h_proto ) ) {
+	switch ( proto ) {
 	case ETH_P_FCOE :
-		if ( fcoe_rx ( intf, ethhdr->h_source, payload,
-			       payload_len ) < 0 )
+		if ( fcoe_rx ( intf, ( vlan ? vlan->tci : 0 ),
+			       ethhdr->h_source, payload, payload_len ) < 0 )
 			goto discard;
 		break;
 	case ETH_P_FIP :
-		if ( fip_rx ( intf, ethhdr->h_source, payload,
-			      payload_len ) < 0 )
+		if ( fip_rx ( intf, ( vlan ? vlan->tci : 0 ),
+			      ethhdr->h_source, payload, payload_len ) < 0 )
 			goto discard;
 		break;
 	default:
@@ -712,7 +730,7 @@ static void advertise ( void ) {
 	struct fcoed_interface *intf;
 
 	list_for_each_entry ( intf, &interfaces, list )
-		fip_tx_discovery_advertisement ( intf, all_enode_macs );
+		fip_tx_discovery_advertisement ( intf, 0, all_enode_macs );
 }
 
 /**

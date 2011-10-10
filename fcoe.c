@@ -71,11 +71,14 @@ int fc_tx ( struct fc_frame_header *fchdr, size_t len ) {
 	struct fcoed_port *dest_port;
 	struct {
 		struct ethhdr ethhdr;
+		struct vlan_header vlan;
 		struct fcoe_header fcoehdr;
 		char fc[len];
 		struct fcoe_footer fcoeftr;
 	} __attribute__ (( packed )) data;
+	struct ethhdr *ethhdr = &data.ethhdr;
 	uint32_t crc;
+	size_t data_len = sizeof ( data );
 	size_t sent_len;
 
 	/* Identify destination interface and port */
@@ -89,11 +92,18 @@ int fc_tx ( struct fc_frame_header *fchdr, size_t len ) {
 	crc = crc32_le ( ~((uint32_t)0), fchdr, len );
 
 	/* Build complete data */
-	memcpy ( data.ethhdr.h_dest, dest_port->mac,
-		 sizeof ( data.ethhdr.h_dest ) );
-	memcpy ( data.ethhdr.h_source, fc_f_mac,
-		 sizeof ( data.ethhdr.h_source ) );
-	data.ethhdr.h_proto = htons ( ETH_P_FCOE );
+	if ( ! dest_port->vlan ) {
+		ethhdr = ( ( ( void * ) ethhdr ) + sizeof ( data.vlan ) );
+		data_len -= sizeof ( data.vlan );
+	}
+	memcpy ( ethhdr->h_dest, dest_port->mac, sizeof ( ethhdr->h_dest ) );
+	memcpy ( ethhdr->h_source, fc_f_mac, sizeof ( ethhdr->h_source ) );
+	ethhdr->h_proto = htons ( ETH_P_FCOE );
+	if ( dest_port->vlan ) {
+		data.vlan.tci = dest_port->vlan;
+		data.vlan.net_proto = ethhdr->h_proto;
+		ethhdr->h_proto = ntohs ( ETH_P_8021Q );
+	}
 	memset ( &data.fcoehdr, 0, sizeof ( data.fcoehdr ) );
 	data.fcoehdr.sof = ( ( fchdr->seq_cnt == ntohs ( 0 ) ) ?
 			     FCOE_SOF_I3 : FCOE_SOF_N3 );
@@ -104,8 +114,8 @@ int fc_tx ( struct fc_frame_header *fchdr, size_t len ) {
 			     FCOE_EOF_T : FCOE_EOF_N );
 
 	/* Send packet */
-	sent_len = pcap_inject ( dest_intf->pcap, &data, sizeof ( data ) );
-	if ( sent_len != sizeof ( data ) ) {
+	sent_len = pcap_inject ( dest_intf->pcap, ethhdr, data_len );
+	if ( sent_len != data_len ) {
 		logmsg ( LOG_ERR, "could not forward to %s: %s\n",
 			 dest_intf->name, pcap_geterr ( dest_intf->pcap ) );
 		return -1;
@@ -118,13 +128,14 @@ int fc_tx ( struct fc_frame_header *fchdr, size_t len ) {
  * Receive FCoE packet
  *
  * @v intf		Interface
+ * @v vlan		VLAN tag, if present
  * @v src		Source address
  * @v data		Data
  * @v len		Length of data
  * @ret rc		Return status code
  */
-int fcoe_rx ( struct fcoed_interface *intf __unused, uint8_t *src __unused,
-	      void *data, size_t len ) {
+int fcoe_rx ( struct fcoed_interface *intf __unused, uint16_t vlan __unused,
+	      uint8_t *src __unused, void *data, size_t len ) {
 	struct fcoe_header *fcoehdr;
 	struct fcoe_footer *fcoeftr;
 	struct fc_frame_header *fchdr;

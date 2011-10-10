@@ -51,6 +51,9 @@
 #ifndef ETH_P_FIP
 #define ETH_P_FIP 0x8914
 #endif
+#ifndef ETH_P_8021Q
+#define ETH_P_8021Q 0x8100
+#endif
 
 /** An interface on which fcoed operates */
 struct fcoed_interface {
@@ -77,6 +80,8 @@ struct fcoed_port {
 	uint8_t mac[ETH_ALEN];
 	/** Real MAC address */
 	uint8_t real_mac[ETH_ALEN];
+	/** VLAN tag, if present */
+	uint16_t vlan;
 };
 
 extern struct fc_map fc_map;
@@ -92,8 +97,9 @@ extern int fc_vlan;
 extern void logmsg ( int level, const char *format, ... )
 	__attribute__ (( format ( printf, 2, 3 ) ));
 extern void random_ether_addr ( uint8_t *mac );
-extern int add_port ( struct fcoed_interface *intf, uint8_t *real_mac,
-		      uint8_t *mac, struct fcoed_port **port );
+extern int add_port ( struct fcoed_interface *intf, uint16_t vlan,
+		      uint8_t *real_mac, uint8_t *mac,
+		      struct fcoed_port **port );
 extern int find_port_by_mac ( uint8_t *mac, struct fcoed_interface **intf,
 			      struct fcoed_port **port );
 extern int find_port_by_real_mac ( uint8_t *real_mac,
