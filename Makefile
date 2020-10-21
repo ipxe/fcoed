@@ -1,4 +1,4 @@
-CFLAGS = -O3 -Wall -Wextra -Werror
+CFLAGS = -O3 -Wall -Wextra -Werror -Wno-address-of-packed-member
 HEADERS = $(wildcard *.h)
 OBJECTS = $(patsubst %.c,%.o,$(wildcard *.c))
 
