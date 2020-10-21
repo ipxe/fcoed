@@ -190,14 +190,42 @@ static int add_interface ( const char *name ) {
 
 	/* Open packet capture interface */
 	errbuf[0] = '\0';
-	intf->pcap = pcap_open_live ( intf->name, PCAP_LEN, 1, 0, errbuf );
+	intf->pcap = pcap_create ( intf->name, errbuf );
 	if ( ! intf->pcap ) {
 		logmsg ( LOG_ERR, "Failed to open %s: %s\n",
 			 intf->name, errbuf );
-		goto err_open_live;
+		goto err_create;
 	}
 	if ( errbuf[0] )
 		logmsg ( LOG_WARNING, "Warning: %s\n", errbuf );
+
+	/* Set snapshot length */
+	if ( pcap_set_snaplen ( intf->pcap, PCAP_LEN ) < 0 ) {
+		logmsg ( LOG_ERR, "Could not set %s snapshot length: %s\n",
+			 intf->name, pcap_geterr ( intf->pcap ) );
+		goto err_snaplen;
+	}
+
+	/* Set capture interface to promiscuous mode */
+	if ( pcap_set_promisc ( intf->pcap, 1 ) < 0 ) {
+		logmsg ( LOG_ERR, "Could not make %s promiscuous: %s\n",
+			 intf->name, pcap_geterr ( intf->pcap ) );
+		goto err_promisc;
+	}
+
+	/* Set capture interface to immediate mode */
+	if ( pcap_set_immediate_mode ( intf->pcap, 1 ) < 0 ) {
+		logmsg ( LOG_ERR, "Could not make %s immediate: %s\n",
+			 intf->name, pcap_geterr ( intf->pcap ) );
+		goto err_immediate;
+	}
+
+	/* Activate capture interface */
+	if ( pcap_activate ( intf->pcap ) < 0 ) {
+		logmsg ( LOG_ERR, "Could not activate %s: %s\n",
+			 intf->name, pcap_geterr ( intf->pcap ) );
+		goto err_activate;
+	}
 
 	/* Set capture interface to non-blocking mode */
 	if ( pcap_setnonblock ( intf->pcap, 1, errbuf ) < 0 ) {
@@ -258,8 +286,12 @@ static int add_interface ( const char *name ) {
  err_datalink:
  err_get_fd:
  err_setnonblock:
+ err_activate:
+ err_immediate:
+ err_promisc:
+ err_snaplen:
 	pcap_close ( intf->pcap );
- err_open_live:
+ err_create:
 	free ( intf );
  err_malloc:
 	return -1;
